@@ -9,10 +9,35 @@ import cv2 as cv2  # for avoidance of pylint error
 import numpy
 import time
 import pygame
+import pygame.font
 import threading
 
 global session_name
 speed = 30
+
+class FlightDataDisplay(object):
+    # previous flight data value and surface to overlay
+    _value = None
+    _surface = None
+    # function (drone, data) => new value
+    # default is lambda drone,data: getattr(data, self._key)
+    _update = None
+    def __init__(self, key, format, colour=(255,255,255), update=None):
+        self._key = key
+        self._format = format
+        self._colour = colour
+
+        if update:
+            self._update = update
+        else:
+            self._update = lambda drone,data: getattr(data, self._key)
+
+    def update(self, drone, data):
+        new_value = self._update(drone, data)
+        if self._value != new_value:
+            self._value = new_value
+            self._surface = pygame.font.render(self._format % (new_value,), True, self._colour)
+        return self._surface
 
 def take_picture(drone, speed):
     if speed == 0:
@@ -30,14 +55,14 @@ controls = {
     'q': 'counter_clockwise',
     'e': 'clockwise',
     # arrow keys for fast turns and altitude adjustments
-    'left': lambda drone, speed: drone.counter_clockwise(speed*2),
-    'right': lambda drone, speed: drone.clockwise(speed*2),
-    'up': lambda drone, speed: drone.up(speed*2),
-    'down': lambda drone, speed: drone.down(speed*2),
-    'tab': lambda drone, speed: drone.takeoff(),
-    'backspace': lambda drone, speed: drone.land(),
-    'enter': take_picture,
-    'return': take_picture,
+    'left': lambda drone, speed: threading.Thread(target=lambda: drone.counter_clockwise(speed*2)).start(),
+    'right': lambda drone, speed: threading.Thread(target=lambda: drone.clockwise(speed*2)).start(),
+    'up': lambda drone, speed: threading.Thread(target=lambda: drone.up(speed*2)).start(),
+    'down': lambda drone, speed: threading.Thread(target=lambda: drone.down(speed*2)).start(),
+    'tab': lambda drone, speed: threading.Thread(target=lambda: drone.takeoff()).start(),
+    'backspace': lambda drone, speed: threading.Thread(target=lambda: drone.land()).start(),
+    'enter': threading.Thread(target=lambda: take_picture).start(),
+    'return': threading.Thread(target=lambda: take_picture).start(),
 }
 
 def handleFileReceived(event, sender, data):
@@ -124,6 +149,7 @@ def main():
                     frame = numpy.rot90(frame)
                     frame = numpy.flipud(frame)
                     surf = pygame.surfarray.make_surface(frame)
+                    surf.blit(FlightDataDisplay('battery_percentage', 'BAT %3d%%').update(drone), (0, 0))
                     screen.fill((0,0,0))
                     screen.blit(surf, (0,0))
                     pygame.display.update()
